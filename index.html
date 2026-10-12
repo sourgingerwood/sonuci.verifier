@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vérification du certificat — SONUCI</title>
+    <style>
+      :root {
+        --navy: #14213d;
+        --gold: #b8860b;
+        --ink: #0f172a;
+        --muted: #64748b;
+        --line: #e2e8f0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f1f5f9;
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        padding: 24px;
+      }
+      .card {
+        width: 100%;
+        max-width: 520px;
+        background: #fff;
+        border: 1px solid var(--line);
+        border-top: 4px solid var(--navy);
+        box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+        padding: 28px;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0 0 4px;
+        color: var(--navy);
+      }
+      .sub {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 20px;
+      }
+      .banner {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 16px;
+        font-weight: 700;
+        font-size: 15px;
+        border: 1px solid;
+        margin-bottom: 18px;
+      }
+      .banner.ok {
+        background: #f0fdf4;
+        border-color: #15803d;
+        color: #166534;
+      }
+      .banner.ko {
+        background: #fef2f2;
+        border-color: #b91c1c;
+        color: #991b1b;
+      }
+      .banner.pending {
+        background: #f8fafc;
+        border-color: var(--line);
+        color: var(--muted);
+      }
+      .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: currentColor;
+        flex-shrink: 0;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      td {
+        padding: 8px 0;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      td:first-child {
+        color: var(--muted);
+        width: 45%;
+        text-transform: uppercase;
+        font-size: 11px;
+        letter-spacing: 0.4px;
+      }
+      td:last-child {
+        text-align: right;
+        font-weight: 600;
+        word-break: break-word;
+      }
+      code {
+        font-family: monospace;
+        font-size: 11px;
+        color: var(--muted);
+        word-break: break-all;
+      }
+      .foot {
+        margin-top: 18px;
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Vérification du certificat</h1>
+      <div class="sub">Certificat de Régulation Foncière — SONUCI SA</div>
+      <div id="result">
+        <div class="banner pending"><span class="dot"></span>Vérification…</div>
+      </div>
+      <div class="foot" id="foot"></div>
+    </main>
+
+    <script>
+      // Clé publique Ed25519 (JWK « x », base64url). Remplacer par la vôtre.
+      const PUBLIC_X = "g2yIYvIjpyk2yaP4hm2LtFUouQaGTITh_8MyiPM9aF8";
+
+      const PREFIX = "SONUCI";
+      const VERSION = "1";
+      const TYPE = "CRF";
+      const SEGMENTS = 9;
+
+      const resultEl = document.getElementById("result");
+      const footEl = document.getElementById("foot");
+
+      function b64urlToBytes(value) {
+        let s = value.replace(/-/g, "+").replace(/_/g, "/");
+        while (s.length % 4) s += "=";
+        const bin = atob(s);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return bytes;
+      }
+
+      function banner(kind, text) {
+        resultEl.innerHTML =
+          '<div class="banner ' +
+          kind +
+          '"><span class="dot"></span>' +
+          text +
+          "</div>";
+      }
+
+      function esc(value) {
+        return String(value ?? "").replace(/[&<>"]/g, (c) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+        })[c]);
+      }
+
+      function renderCertificate(fields) {
+        const rows = [
+          ["N° du certificat", fields.numero],
+          ["Référence de la vente", fields.venteReference],
+          ["Titre foncier", fields.titreFoncier],
+          ["Titulaire (NPI)", fields.titulaireNpi],
+          ["Date", fields.date],
+        ];
+        resultEl.innerHTML =
+          '<div class="banner ok"><span class="dot"></span>Certificat authentique</div>' +
+          "<table>" +
+          rows
+            .map(
+              ([label, value]) =>
+                "<tr><td>" +
+                esc(label) +
+                "</td><td>" +
+                esc(value) +
+                "</td></tr>",
+            )
+            .join("") +
+          "</table>";
+      }
+
+      async function verify() {
+        const code = new URLSearchParams(location.search).get("code");
+        if (!code) {
+          banner("ko", "Aucun code fourni");
+          return;
+        }
+
+        const parts = code.split("|");
+        if (parts.length !== SEGMENTS + 1) {
+          banner("ko", "Code mal formé");
+          return;
+        }
+
+        const [prefix, version, type, numero, venteId, venteReference, titreFoncier, titulaireNpi, date] =
+          parts;
+        if (prefix !== PREFIX || version !== VERSION || type !== TYPE) {
+          banner("ko", "Type de code inconnu");
+          return;
+        }
+
+        const signature = parts[SEGMENTS];
+        const data = parts.slice(0, SEGMENTS).join("|");
+
+        let valid = false;
+        try {
+          const key = await crypto.subtle.importKey(
+            "jwk",
+            { kty: "OKP", crv: "Ed25519", x: PUBLIC_X },
+            { name: "Ed25519" },
+            false,
+            ["verify"],
+          );
+          valid = await crypto.subtle.verify(
+            { name: "Ed25519" },
+            key,
+            b64urlToBytes(signature),
+            new TextEncoder().encode(data),
+          );
+        } catch (error) {
+          valid = false;
+        }
+
+        if (!valid) {
+          banner("ko", "Signature invalide — document non authentique");
+          footEl.innerHTML =
+            "Ce certificat n'a pas pu être authentifié. Code : <code>" +
+            esc(code) +
+            "</code>";
+          return;
+        }
+
+        renderCertificate({
+          numero,
+          venteReference,
+          titreFoncier,
+          titulaireNpi,
+          date,
+        });
+        footEl.innerHTML =
+          "Signature Ed25519 vérifiée localement (clé publique SONUCI). " +
+          "Cette vérification atteste de l'authenticité du document, pas de son état actuel.";
+      }
+
+      verify();
+    </script>
+  </body>
+</html>
